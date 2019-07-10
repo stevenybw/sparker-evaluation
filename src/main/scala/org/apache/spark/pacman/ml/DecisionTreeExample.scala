@@ -29,6 +29,7 @@ import org.apache.spark.ml.{Pipeline, PipelineStage, Transformer}
 import org.apache.spark.mllib.evaluation.{MulticlassMetrics, RegressionMetrics}
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.storage.StorageLevel
 import scopt.OptionParser
 
 import scala.collection.mutable
@@ -182,8 +183,23 @@ object DecisionTreeExample {
       origExamples.randomSplit(Array(1.0 - fracTest, fracTest), seed = 12345)
     }
 
-    val training = dataframes(0).cache()
-    val test = dataframes(1).cache()
+    // Stub
+    spark.sparkContext.parallelize(0 until 1024, 1024).count()
+    spark.sparkContext.updateExecutorLocations()
+    println(s"Number of executors observed: ${spark.sparkContext.executorLocations.size}")
+
+    val parallelism = spark.conf.get("spark.default.parallelism", "")
+    println(s"Parallelism is ${parallelism}")
+    val training = if (!parallelism.isEmpty) {
+      dataframes(0).repartition(parallelism.toInt).persist(StorageLevel.MEMORY_AND_DISK.setStaticScheduling())
+    } else {
+      dataframes(0).persist(StorageLevel.MEMORY_AND_DISK.setStaticScheduling())
+    }
+    val test = if (!parallelism.isEmpty) {
+      dataframes(1).repartition(parallelism.toInt).persist(StorageLevel.MEMORY_AND_DISK.setStaticScheduling())
+    } else {
+      dataframes(1).persist(StorageLevel.MEMORY_AND_DISK.setStaticScheduling())
+    }
 
     val numTraining = training.count()
     val numTest = test.count()
