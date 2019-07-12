@@ -12,31 +12,32 @@ import org.apache.spark.ml.feature.StringIndexer
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 /**
-  * An example runner for logistic regression with elastic-net (mixing L1/L2) regularization.
-  * Run with
-  * {{{
-  * bin/run-example ml.LogisticRegressionExample [options]
-  * }}}
-  * A synthetic dataset can be found at `data/mllib/sample_libsvm_data.txt` which can be
-  * trained by
-  * {{{
-  * bin/run-example ml.LogisticRegressionExample --regParam 0.3 --elasticNetParam 0.8 \
-  *   data/mllib/sample_libsvm_data.txt
-  * }}}
-  * If you use it as a template to create your own app, please use `spark-submit` to submit your app.
-  */
+ * An example runner for logistic regression with elastic-net (mixing L1/L2) regularization.
+ * Run with
+ * {{{
+ * bin/run-example ml.LogisticRegressionExample [options]
+ * }}}
+ * A synthetic dataset can be found at `data/mllib/sample_libsvm_data.txt` which can be
+ * trained by
+ * {{{
+ * bin/run-example ml.LogisticRegressionExample --regParam 0.3 --elasticNetParam 0.8 \
+ *   data/mllib/sample_libsvm_data.txt
+ * }}}
+ * If you use it as a template to create your own app, please use `spark-submit` to submit your app.
+ */
 object LogisticRegressionExample {
 
   case class Params(
-                     input: String = null,
-                     testInput: String = "",
-                     dataFormat: String = "libsvm",
-                     regParam: Double = 0.0,
-                     elasticNetParam: Double = 0.0,
-                     maxIter: Int = 100,
-                     fitIntercept: Boolean = true,
-                     tol: Double = 1E-6,
-                     fracTest: Double = 0.2) extends AbstractParams[Params]
+    input: String = null,
+    testInput: String = "",
+    dataFormat: String = "libsvm",
+    regParam: Double = 0.0,
+    elasticNetParam: Double = 0.0,
+    maxIter: Int = 100,
+    fitIntercept: Boolean = true,
+    tol: Double = 1E-6,
+    fracTest: Double = 0.2,
+    computeTest: Boolean = false) extends AbstractParams[Params]
 
   def main(args: Array[String]) {
     val defaultParams = Params()
@@ -72,6 +73,9 @@ object LogisticRegressionExample {
       opt[String]("dataFormat")
         .text("data format: libsvm (default), dense (deprecated in Spark v1.1)")
         .action((x, c) => c.copy(dataFormat = x))
+      opt[Boolean]("computeTest")
+        .text("whether to compute the perplexity of the dataset (which may be very costly)")
+        .action((x, c) => c.copy(computeTest = x))
       arg[String]("<input>")
         .text("input path to labeled examples")
         .required()
@@ -133,12 +137,13 @@ object LogisticRegressionExample {
     // Print the weights and intercept for logistic regression.
     println(s"Weights: ${lorModel.coefficients} Intercept: ${lorModel.intercept}")
 
-    println("Training data results:")
-    DecisionTreeExample.evaluateClassificationModel(pipelineModel, training, "indexedLabel")
-    println("Test data results:")
-    DecisionTreeExample.evaluateClassificationModel(pipelineModel, test, "indexedLabel")
+    if (params.computeTest) {
+      println("Test data results:")
+      DecisionTreeExample.evaluateClassificationModel(pipelineModel, test, "indexedLabel")
+    }
 
     spark.stop()
   }
 }
+
 // scalastyle:on println

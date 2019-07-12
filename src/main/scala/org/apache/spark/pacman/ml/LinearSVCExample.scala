@@ -13,20 +13,21 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 object LinearSVCExample {
 
   case class Params(
-                     input: String = null,
-                     testInput: String = "",
-                     dataFormat: String = "libsvm",
-                     regParam: Double = 0.1,
-                     maxIter: Int = 100,
-                     fitIntercept: Boolean = true,
-                     tol: Double = 1E-6,
-                     fracTest: Double = 0.2) extends AbstractParams[Params]
+    input: String = null,
+    testInput: String = "",
+    dataFormat: String = "libsvm",
+    regParam: Double = 0.1,
+    maxIter: Int = 100,
+    fitIntercept: Boolean = true,
+    tol: Double = 1E-6,
+    fracTest: Double = 0.2,
+    computeTest: Boolean = false) extends AbstractParams[Params]
 
   def main(args: Array[String]) {
     val defaultParams = Params()
 
     val parser = new OptionParser[Params]("LinearSVCExample") {
-      head("LinearSVCExample: an example Logistic Regression with Elastic-Net app.")
+      head("LinearSVCExample")
       opt[Double]("regParam")
         .text(s"regularization parameter, default: ${defaultParams.regParam}")
         .action((x, c) => c.copy(regParam = x))
@@ -51,6 +52,9 @@ object LinearSVCExample {
       opt[String]("dataFormat")
         .text("data format: libsvm (default), dense (deprecated in Spark v1.1)")
         .action((x, c) => c.copy(dataFormat = x))
+      opt[Boolean]("computeTest")
+        .text("whether to compute the perplexity of the dataset (which may be very costly)")
+        .action((x, c) => c.copy(computeTest = x))
       arg[String]("<input>")
         .text("input path to labeled examples")
         .required()
@@ -90,7 +94,7 @@ object LinearSVCExample {
       .setOutputCol("indexedLabel")
     stages += labelIndexer
 
-    val lor = new LinearSVC()
+    val svm = new LinearSVC()
       .setFeaturesCol("features")
       .setLabelCol("indexedLabel")
       .setRegParam(params.regParam)
@@ -98,7 +102,7 @@ object LinearSVCExample {
       .setTol(params.tol)
       .setFitIntercept(params.fitIntercept)
 
-    stages += lor
+    stages += svm
     val pipeline = new Pipeline().setStages(stages.toArray)
 
     // Fit the Pipeline.
@@ -107,17 +111,14 @@ object LinearSVCExample {
     val elapsedTime = (System.nanoTime() - startTime) / 1e9
     println(s"Training time: $elapsedTime seconds")
 
-    val lorModel = pipelineModel.stages.last.asInstanceOf[LogisticRegressionModel]
-    // Print the weights and intercept for logistic regression.
-    println(s"Weights: ${lorModel.coefficients} Intercept: ${lorModel.intercept}")
-
-    println("Training data results:")
-    DecisionTreeExample.evaluateClassificationModel(pipelineModel, training, "indexedLabel")
-    println("Test data results:")
-    DecisionTreeExample.evaluateClassificationModel(pipelineModel, test, "indexedLabel")
+    if (params.computeTest) {
+      println("Test data results:")
+      DecisionTreeExample.evaluateClassificationModel(pipelineModel, test, "indexedLabel")
+    }
 
     spark.stop()
   }
 }
+
 // scalastyle:on println
 
