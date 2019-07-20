@@ -28,7 +28,7 @@ import org.apache.spark.ml.util.MetadataUtils
 import org.apache.spark.ml.{Pipeline, PipelineStage, Transformer}
 import org.apache.spark.mllib.evaluation.{MulticlassMetrics, RegressionMetrics}
 import org.apache.spark.mllib.util.MLUtils
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame, Dataset, Row, SparkSession}
 import org.apache.spark.storage.StorageLevel
 import scopt.OptionParser
 
@@ -357,5 +357,23 @@ object DecisionTreeExample {
     val RMSE = new RegressionMetrics(predictions.zip(labels)).rootMeanSquaredError
     println(s"  Root mean squared error (RMSE): $RMSE")
   }
+
+  def initStaticScheduling(spark: SparkSession): Unit = {
+    // Stub for forcefully static-scheduling
+    spark.sparkContext.parallelize(0 until 1024, 1024).count()
+    spark.sparkContext.updateExecutorLocations()
+    println(s"Number of executors observed: ${spark.sparkContext.executorLocations.size}")
+  }
+
+  def processDataset(spark: SparkSession, df: DataFrame): Dataset[Row] = {
+    val parallelism = spark.conf.get("spark.default.parallelism", "")
+    println(s"Parallelism is ${parallelism}")
+    if (!parallelism.isEmpty) {
+      df.repartition(parallelism.toInt).persist(StorageLevel.MEMORY_AND_DISK.setStaticScheduling())
+    } else {
+      df.persist(StorageLevel.MEMORY_AND_DISK.setStaticScheduling())
+    }
+  }
+
 }
 // scalastyle:on println
