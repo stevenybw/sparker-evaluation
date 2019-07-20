@@ -28,8 +28,9 @@ class SparkleContext(@transient val sc: SparkContext) extends Serializable {
    * Initialize the ZMQ sockets for each executor. After this call, the ZMQ communicator shall be visible as
    * zmqCommunicatorId in the [[org.apache.spark.storage.LocalObjectManager]]
    * @param numRails the number of parallel rails to fully utilize the throughput
+   * @param useCompression Set true to compress the data the same way as Spark's shuffle data
    */
-  def initZMQ(numRails: Int): Unit = {
+  def initZMQ(numRails: Int, useCompression: Boolean = false): Unit = {
     require(numRails >= 1)
     if (zmqInit) {
       throw new RuntimeException("ZeroMQ already initialized")
@@ -60,7 +61,13 @@ class SparkleContext(@transient val sc: SparkContext) extends Serializable {
         rx.connect(s"tcp://${prevHost}:${port}")
         rx
       })
-      val comm = new ZmqCommunicator(zi.ctx, rank, topology, zi.txAndPorts.map(_._1).zip(rx_list), SparkEnv.get.serializer)
+      val comm = new ZmqCommunicator(zi.ctx,
+                                     rank,
+                                     topology,
+                                     zi.txAndPorts.map(_._1).zip(rx_list),
+                                     SparkEnv.get.serializer,
+                                     SparkEnv.get.serializerManager,
+                                     useCompression)
       objManager.atomicPutOrMutate[ZmqCommunicator](zmqCommunicatorId, _=>(), comm)
       rank
     }).collect()

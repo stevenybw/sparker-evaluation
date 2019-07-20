@@ -112,7 +112,12 @@ object Benchmark {
    *                      Some(p): use multi-thread version
    * @return
    */
-  def zmqDoReduceScatter(spc: SparkleContext, arrayBytes: Int, parallelism: Option[Int], numAttempts: Int = 2, seed: Int = 2019): (Int, Double, Double) = {
+  def zmqDoReduceScatter(spc: SparkleContext,
+                         arrayBytes: Int,
+                         parallelism: Option[Int],
+                         numAttempts: Int,
+                         verySparseMessage: Boolean,
+                         seed: Int = 2019): (Int, Double, Double) = {
     require(arrayBytes % 8 == 0)
     val numExecutors = spc.sc.executorLocations.size
     val durations = spc.spawnZmq(comm=>{
@@ -126,7 +131,11 @@ object Benchmark {
         reducedData2.foreach(v => require(v == expectedValue))
       }
       val rand = new scala.util.Random(seed)
-      val data = Array.fill[Double](arrayBytes/8)(rand.nextDouble())
+      val data = if (verySparseMessage) {
+        Array.fill[Double](arrayBytes/8)(seed)
+      } else {
+        Array.fill[Double](arrayBytes/8)(rand.nextDouble())
+      }
       if (parallelism.isDefined) {
         comm.reduceScatterParallel[Double](data, _+_, parallelism.get)
       } else {
@@ -168,13 +177,26 @@ object Benchmark {
 
   /**
    * Measure the ReduceScatter throughput of [[ZmqCommunicator]]
+   *
+   * @param fromSize the beginning of size in bytes
+   * @param toSize the ending of size in bytes
+   * @param numAttempts number of attempts
+   *                    Set this number as large as possible for accurate result
+   * @param verySparseMessage If this is set true, then the message will be filled with the same number;
+   *                          Otherwise, the message will be filled with random number.
+   *                          This flag will influence the effect of compression
    */
-  def zmqReduceScatterThroughput(spc: SparkleContext, maxParallelism: Int = 4, fromSize: Int = 1024, toSize: Int = 8*1024*1024, numAttempts: Int = 2): Unit = {
+  def zmqReduceScatterThroughput(spc: SparkleContext,
+                                 maxParallelism: Int = 4,
+                                 fromSize: Int = 1024,
+                                 toSize: Int = 8*1024*1024,
+                                 numAttempts: Int = 2,
+                                 verySparseMessage: Boolean = false): Unit = {
     println("Parallelism Bytes Duration Bandwidth(MBps)")
     var size = fromSize
     while (size <= toSize) {
       for (parallelism <- (1 to maxParallelism).map(p => Some(p))) {
-        val (sz, duration, bw) = zmqDoReduceScatter(spc, size, parallelism, numAttempts)
+        val (sz, duration, bw) = zmqDoReduceScatter(spc, size, parallelism, numAttempts, verySparseMessage)
         val ps = parallelism.map(_.toString).getOrElse("None")
         println(s"${ps} ${size} ${duration} ${bw}")
       }
