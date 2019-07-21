@@ -12,6 +12,8 @@ import scala.util.Random
 
 case class ZmqInfo(ctx: ZMQ.Context, txAndPorts: IndexedSeq[(ZMQ.Socket, Int)])
 
+case class SplitAggregateMetric(var computeTimeNs: Long = 0, var reduceScatterTimeNs: Long = 0, var gatherTimeNs: Long = 0, var lastConcatTimeNs: Long = 0)
+
 /**
  * The context passed to the actors spawned
  */
@@ -20,9 +22,9 @@ case class ActorContext(rank: Int, topology: Map[Int, BlockManagerId]) {
 }
 
 class SparkleContext(@transient val sc: SparkContext) extends Serializable {
+  import SparkleContext._
+
   var zmqInit = false
-  private val zmqInfoId = ReducedResultObjectId(-1, -1)
-  private val zmqCommunicatorId = ReducedResultObjectId(-2, -2)
 
   /**
    * Initialize the ZMQ sockets for each executor. After this call, the ZMQ communicator shall be visible as
@@ -110,9 +112,7 @@ class SparkleContext(@transient val sc: SparkContext) extends Serializable {
     ranks.map(i => callback(ActorContext(i, mapping))).collect()
   }
 
-  case class SplitAggregateMetric(var computeTimeNs: Long, var reduceScatterTimeNs: Long, var gatherTimeNs: Long)
-
-  def splitAggregate[T: ClassTag, U: ClassTag, V: ClassTag](zeroValue: =>U)(
+  def splitAggregate[T: ClassTag, U: ClassTag, V: ClassTag](zeroValue: U)(
     rdd: RDD[T],
     seqOp: (U, T) => U,
     reduceOp: (U, U) => U,
@@ -144,13 +144,16 @@ class SparkleContext(@transient val sc: SparkContext) extends Serializable {
     })
     val t3 = System.nanoTime()
     val resultRdd = new ObjectStoreRDD[V](sc, sc.executorLocations, objectId)
-    val result = concatOp(resultRdd.collect())
+    val results = resultRdd.collect()
     val t4 = System.nanoTime()
+    val result = concatOp(results)
+    val t5 = System.nanoTime()
     metricsOpt match {
       case Some(m) =>
         m.computeTimeNs = t2 - t1
         m.reduceScatterTimeNs = t3 - t2
         m.gatherTimeNs = t4 - t3
+        m.lastConcatTimeNs = t5 - t4
       case None =>
     }
     result
@@ -187,4 +190,7 @@ object SparkleContext {
         spc
     }
   }
+
+  val zmqInfoId = ReducedResultObjectId(-1, -1)
+  val zmqCommunicatorId = ReducedResultObjectId(-2, -2)
 }

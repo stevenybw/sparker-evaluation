@@ -248,6 +248,18 @@ object Benchmark {
     println(s"${parallelism} ${numPartition} ${vectorPerPartition} ${vectorDimension} ${1e-9*treeNs} ${1e-9*spagNs} ${1e-9*sparkleNs}")
   }
 
-  def rddAggregateCompare(spc: SparkleContext,
-                          )
+  def rddAggregate(spc: SparkleContext,
+                   vectorPerPartition: Int,
+                   numPartition: Int,
+                   numTries: Int,
+                   parallelism: Int,
+                   fromDimension: Int = 128,
+                   toDimension: Int = 1024*1024): Unit = {
+    println("Parallelism NumPartition VectorPerPartition VectorDimension Tree(Sec) Spag(Sec) Sparkle(Sec)")
+    var vectorDimension = fromDimension
+    while (vectorDimension <= toDimension) {
+      rddDoAggregate(spc, vectorPerPartition, vectorDimension, numPartition, numTries, parallelism)
+      vectorDimension *= 2
+    }
+  }
 }
