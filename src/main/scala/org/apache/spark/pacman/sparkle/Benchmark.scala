@@ -1,6 +1,9 @@
 package org.apache.spark.pacman.sparkle
 
+import breeze.linalg.DenseVector
+import breeze.stats.distributions.Rand
 import org.apache.spark.SparkEnv
+
 import scala.util.Random
 
 /**
@@ -125,9 +128,9 @@ object Benchmark {
         // Basically verify the correctness
         val data = Array.fill[Long](arrayBytes/8)(comm.rank)
         val expectedValue = 1L * comm.size * (comm.size-1) / 2
-        val reducedData1 = comm.reduceScatterParallel[Long](data, _+_, parallelism.get)
+        val reducedData1 = comm.reduceScatterParallelArray[Long](data, _+_, parallelism.get)
         reducedData1.foreach(v => require(v == expectedValue))
-        val reducedData2 = comm.reduceScatterParallel[Long](data, _+_, parallelism.get)
+        val reducedData2 = comm.reduceScatterParallelArray[Long](data, _+_, parallelism.get)
         reducedData2.foreach(v => require(v == expectedValue))
       }
       val rand = new scala.util.Random(seed)
@@ -137,7 +140,7 @@ object Benchmark {
         Array.fill[Double](arrayBytes/8)(rand.nextDouble())
       }
       if (parallelism.isDefined) {
-        comm.reduceScatterParallel[Double](data, _+_, parallelism.get)
+        comm.reduceScatterParallelArray[Double](data, _+_, parallelism.get)
       } else {
         require(false)
         // comm.allgather(data)
@@ -145,7 +148,7 @@ object Benchmark {
       val beginTimeMs = System.currentTimeMillis()
       for (i <- 0 until numAttempts) {
         if (parallelism.isDefined) {
-          comm.reduceScatterParallel[Double](data, _+_, parallelism.get)
+          comm.reduceScatterParallelArray[Double](data, _+_, parallelism.get)
         } else {
           require(false)
           // comm.allgather(data)
@@ -203,4 +206,48 @@ object Benchmark {
       size *= 2
     }
   }
+
+  def rddDoAggregate(spc: SparkleContext,
+                     vectorPerPartition: Int,
+                     vectorDimension: Int,
+                     numPartition: Int,
+                     numTries: Int,
+                     parallelism: Int): Unit = {
+    val dataset = spc.sc.parallelize(0 until (vectorPerPartition * numPartition), numPartition).map(i => {
+      DenseVector.rand[Long](vectorDimension, Rand.randLong)
+    }).cacheWithStaticScheduling()
+    dataset.count()
+    var treeNs: Double = 0
+    var spagNs: Double = 0
+    var sparkleNs: Double = 0
+    for (i <- 0 until numTries) {
+      val t1 = System.nanoTime()
+      val treeResult = dataset.treeAggregate(DenseVector.zeros[Long](vectorDimension))(_+_, _+_)
+      val t2 = System.nanoTime()
+      val spagResult = dataset.spagAggregateWithMetrics(DenseVector.zeros[Long](vectorDimension))(_+_, _+_, SplitOps.denseVectorSplitOpLong, SplitOps.denseVectorConcatOpLong)._1
+      val t3 = System.nanoTime()
+      val sparkleResult = spc.splitAggregate[DenseVector[Long], DenseVector[Long], DenseVector[Long]](DenseVector.zeros[Long](vectorDimension))(
+        dataset,
+        _+_,
+        _+_,
+        SplitOps.denseVectorSplitOpLong,
+        _+_,
+        SplitOps.denseVectorConcatOpLong,
+        4,
+        None)
+      val t4 = System.nanoTime()
+      require(spagResult == treeResult)
+      require(sparkleResult == treeResult)
+      treeNs += t2-t1
+      spagNs += t3-t2
+      sparkleNs += t4-t3
+    }
+    treeNs /= numTries
+    spagNs /= numTries
+    sparkleNs /= numTries
+    println(s"${parallelism} ${numPartition} ${vectorPerPartition} ${vectorDimension} ${1e-9*treeNs} ${1e-9*spagNs} ${1e-9*sparkleNs}")
+  }
+
+  def rddAggregateCompare(spc: SparkleContext,
+                          )
 }

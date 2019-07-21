@@ -9,6 +9,7 @@ import scala.collection.mutable
 import org.apache.spark.ml.{Pipeline, PipelineStage}
 import org.apache.spark.ml.classification.{LogisticRegression, LogisticRegressionModel}
 import org.apache.spark.ml.feature.StringIndexer
+import org.apache.spark.pacman.AbstractParams
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 /**

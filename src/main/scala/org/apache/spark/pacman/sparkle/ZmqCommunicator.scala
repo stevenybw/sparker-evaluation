@@ -21,9 +21,9 @@ import scala.reflect.ClassTag
  *
  * Currently only ring-based topology has been implemented
  *
- * @param ctx The ZeroMQ context
- * @param _serializer Spark serializer
- * @param _serManager Spark serializer manager
+ * @param ctx             The ZeroMQ context
+ * @param _serializer     Spark serializer
+ * @param _serManager     Spark serializer manager
  * @param _useCompression Set true to use compression (the same way as Spark's shuffle data)
  */
 class ZmqCommunicator(val ctx: ZMQ.Context,
@@ -33,6 +33,7 @@ class ZmqCommunicator(val ctx: ZMQ.Context,
                       _serializer: Serializer,
                       _serManager: SerializerManager,
                       _useCompression: Boolean) {
+
   /** ByteArrayOutputStream with its buffer exposed */
   class MyByteArrayOutputStream(size: Int) extends ByteArrayOutputStream(size) {
     def getBuf: Array[Byte] = buf
@@ -60,13 +61,13 @@ class ZmqCommunicator(val ctx: ZMQ.Context,
    * @param desInputStream
    */
   case class _TLC(serInstance: SerializerInstance,
-                          serBuffer: MyByteArrayOutputStream,
-                          wos: OutputStream,
-                          serOutputStream: SerializationStream,
-                          desBuffer: MyByteArrayInputStream,
-                          wis: InputStream,
-                          desInputStream: DeserializationStream,
-                          defaultCompression: Boolean) {
+                  serBuffer: MyByteArrayOutputStream,
+                  wos: OutputStream,
+                  serOutputStream: SerializationStream,
+                  desBuffer: MyByteArrayInputStream,
+                  wis: InputStream,
+                  desInputStream: DeserializationStream,
+                  defaultCompression: Boolean) {
     def sendObjectWithCompression[T: ClassTag](tx: ZMQ.Socket, t: T): Unit = {
       serBuffer.reset()
       serOutputStream.writeObject(t)
@@ -122,7 +123,7 @@ class ZmqCommunicator(val ctx: ZMQ.Context,
     override def initialValue(): _TLC = {
       val DEFAULT_SEED = 0x9747b28c
       val serInstance = _serializer.newInstance()
-      val serBuffer = new MyByteArrayOutputStream(1024*1024)
+      val serBuffer = new MyByteArrayOutputStream(1024 * 1024)
       // It is presumed that compression will be used
       val blockSize = SparkEnv.get.conf.getSizeAsBytes("spark.io.compression.lz4.blockSize", "32k").toInt
       val wos = new LZ4BlockOutputStream(serBuffer, blockSize, LZ4Factory.fastestInstance().fastCompressor(), XXHashFactory.fastestInstance().newStreamingHash32(DEFAULT_SEED).asChecksum(), true)
@@ -170,33 +171,34 @@ class ZmqCommunicator(val ctx: ZMQ.Context,
     val result = new Array[Array[Byte]](size)
     result(rank) = data
     tx.send(data, 0)
-    for (i <- 1 until size-1) {
+    for (i <- 1 until size - 1) {
       val received = rx.recv(0)
-      result((rank+size-i) % size) = received
+      result((rank + size - i) % size) = received
       tx.send(received, 0)
     }
     val received = rx.recv(0)
-    result((rank+1) % size)=received
+    result((rank + 1) % size) = received
     result.foreach(e => require(e != null))
     result
   }
 
   /**
    * ReduceScatter with only one thread
-   * @param data the input data for each destination
+   *
+   * @param data     the input data for each destination
    * @param reduceOp how the two element can be reduced
    * @tparam T
    * @return a single element that has been reduced
    */
-  def reduceScatter[T: ClassTag](data: IndexedSeq[T], reduceOp: (T, T)=>T): T = {
+  def reduceScatter[T: ClassTag](data: IndexedSeq[T], reduceOp: (T, T) => T): T = {
     val tlc = _tlc.get()
     require(data.size == size)
     val tx = getTx(0)
     val rx = getRx(0)
-    tlc.sendObject(tx, data((rank+size-1)%size))
+    tlc.sendObject(tx, data((rank + size - 1) % size))
     for (i <- 2 until size) {
       val received = tlc.recvObject[T](rx)
-      val toSend = reduceOp(data((rank+size-i) % size), received)
+      val toSend = reduceOp(data((rank + size - i) % size), received)
       tlc.sendObject(tx, toSend)
     }
     val received = tlc.recvObject[T](rx)
@@ -204,62 +206,96 @@ class ZmqCommunicator(val ctx: ZMQ.Context,
   }
 
   /**
-   * ReduceScatter in parallel
-   * @param data the input data
-   *             Every participant's data must be in the same dimension
+   * ReduceScatter on array type
+   *
+   * @param data     the input data in the form of array
+   *                 Every participant's data must be in the same dimension
    * @param reduceOp how two element can be reduced
    * @tparam T
    * @return
    */
-  def reduceScatterParallel[T: ClassTag](data: Array[T], reduceOp: (T, T)=>T, required_parallelism: Int = parallelism): Array[T] = {
-    if (required_parallelism > parallelism) {
-      throw new IllegalArgumentException(s"Required parallelism ${required_parallelism} is greater than communicator parallelism ${parallelism}")
+  def reduceScatterParallelArray[T: ClassTag](data: Array[T], reduceOp: (T, T) => T, requiredParallelism: Int = parallelism): Array[T] = {
+    reduceScatterParallel[Array[T], Array[T]](
+      data,
+      (v, i, n) => {
+        val bs = v.length / n
+        data.slice(i * bs, if (i == n - 1) v.length else (i + 1) * bs)
+      },
+      (l, r) => {
+        require(l.length == r.length)
+        for (j <- l.indices) {
+          l(j) = reduceOp(l(j), r(j))
+        }
+        l
+      },
+      ls => {
+        val len = ls.map(_.length).sum
+        val res = new Array[T](len)
+        // Parallel concatenate does not improve the performance
+        //        val pfx = ls.map(_.length).scanLeft(0)(_ + _)
+        //        val futures = ls.indices.map(tid => {
+        //          Future {
+        //                   require(pfx(tid + 1) - pfx(tid) == ls(tid).length)
+        //                   System.arraycopy(ls(tid), 0, res, pfx(tid), ls(tid).length)
+        //                 }
+        //        })
+        //        Await.result(Future.sequence(futures), Duration.Inf)
+        var offset = 0
+        for (tid <- ls.indices) {
+          System.arraycopy(ls(tid), 0, res, offset, ls(tid).length)
+          offset += ls(tid).length
+        }
+        res
+      },
+      requiredParallelism)
+  }
+
+  /**
+   * General communication routine providing reduce-scatter capability. To fully utilize the computing power inside an
+   * executor, multiple threads will be employed.
+   *
+   * @param data                the input combiner
+   * @param splitOp             defines how to split a combiner into a sequence of combiners
+   *                            Prototype: (input combiner, block index, number of blocks) => split combiner
+   * @param reduceOp            defines how to merge two combiners within the same segment
+   *                            Prototype: (combiner 1, combiner 2) => merged combiner
+   * @param concatOp            defines how to concatenate a sequence of combiners into a single combiner
+   * @param requiredParallelism the number of threads that will be employed in the communication
+   * @tparam V combiner type
+   * @return
+   */
+  def reduceScatterParallel[U: ClassTag, V: ClassTag](data: U,
+                                         splitOp: (U, Int, Int) => V,
+                                         reduceOp: (V, V) => V,
+                                         concatOp: IndexedSeq[V] => V,
+                                         requiredParallelism: Int): V = {
+    if (requiredParallelism > parallelism) {
+      throw new IllegalArgumentException(s"Required parallelism ${requiredParallelism} is greater than communicator parallelism ${parallelism}")
     }
-    val bs = data.length / size
-    val assignIdx = (0 until size).map(i => (i*bs, if (i == size-1) data.length else (i+1)*bs))
-    val futures = (0 until required_parallelism).map(tid => {
+    val futures = (0 until requiredParallelism).map(tid => {
       Future {
-        val tx = getTx(tid)
-        val rx = getRx(tid)
-        val tlc = _tlc.get()
-        val localData = (0 until size).map(i => {
-          val (bi, ei) = assignIdx(i)
-          val sz = ei - bi
-          val bs = sz / required_parallelism
-          data.slice(bi+tid*bs, if (tid==required_parallelism-1) ei else bi+(tid+1)*bs)
-        })
-        tlc.sendObject(tx, localData((rank+size-1)%size))
-        for (i <- 2 until size) {
-          val received = tlc.recvObject[Array[T]](rx)
-          val local = localData((rank+size-i)%size)
-          require(received.length == local.length)
-          for (j <- local.indices) {
-            received(j) = reduceOp(received(j), local(j))
-          }
-          tlc.sendObject(tx, received)
-        }
-        val received = tlc.recvObject[Array[T]](rx)
-        val local = localData(rank)
-        for (j <- local.indices) {
-          received(j) = reduceOp(received(j), local(j))
-        }
-        received
-      }(_tp)
+               val tx = getTx(tid)
+               val rx = getRx(tid)
+               val tlc = _tlc.get()
+               val localData = (0 until size).map(i => splitOp(data, i * requiredParallelism + tid, size * requiredParallelism))
+               tlc.sendObject(tx, localData((rank + size - 1) % size))
+               for (i <- 2 until size) {
+                 val received = tlc.recvObject[V](rx)
+                 val local = localData((rank + size - i) % size)
+                 tlc.sendObject(tx, reduceOp(received, local))
+               }
+               val received = tlc.recvObject[V](rx)
+               val local = localData(rank)
+               reduceOp(received, local)
+             }
     })
-    val result_slices = Await.result(Future.sequence(futures), Duration.Inf)
-    val result_length = result_slices.map(_.length).sum
-    val result = new Array[T](result_length)
-    var offset = 0
-    for (tid <- 0 until required_parallelism) {
-      System.arraycopy(result_slices(tid), 0, result, offset, result_slices(tid).length)
-      offset += result_slices(tid).length
-    }
-    result
+    concatOp(Await.result(Future.sequence(futures), Duration.Inf))
   }
 
   /**
    * Perform Allgather communication on the communicator
-   * @param input_data the input data as a byte array to be allgather
+   *
+   * @param input_data           the input data as a byte array to be allgather
    * @param required_parallelism Required parallelism level.
    *                             Increased parallelism level would improve the performance with the price that the
    *                             input data will be sliced into more smaller parts.
@@ -271,25 +307,25 @@ class ZmqCommunicator(val ctx: ZMQ.Context,
     }
     val futures = (0 until required_parallelism).map(i => {
       Future {
-        val bs = input_data.size / required_parallelism
-        val fromIdx = i*bs
-        val toIdx = if (i==(required_parallelism-1)) input_data.size else (i+1)*bs
-        val data = input_data.slice(fromIdx, toIdx)
-        val tx = getTx(i)
-        val rx = getRx(i)
-        val result = new Array[Array[Byte]](size)
-        result(rank) = data
-        tx.send(data, 0)
-        for (i <- 1 until size-1) {
-          val received = rx.recv(0)
-          result((rank+size-i) % size) = received
-          tx.send(received, 0)
-        }
-        val received = rx.recv(0)
-        result((rank+1) % size)=received
-        result.foreach(e => require(e != null))
-        result
-      }(_tp)
+               val bs = input_data.size / required_parallelism
+               val fromIdx = i * bs
+               val toIdx = if (i == (required_parallelism - 1)) input_data.size else (i + 1) * bs
+               val data = input_data.slice(fromIdx, toIdx)
+               val tx = getTx(i)
+               val rx = getRx(i)
+               val result = new Array[Array[Byte]](size)
+               result(rank) = data
+               tx.send(data, 0)
+               for (i <- 1 until size - 1) {
+                 val received = rx.recv(0)
+                 result((rank + size - i) % size) = received
+                 tx.send(received, 0)
+               }
+               val received = rx.recv(0)
+               result((rank + 1) % size) = received
+               result.foreach(e => require(e != null))
+               result
+             }(_tp)
     })
     val result_slices = Await.result(Future.sequence(futures), Duration.Inf)
     // val result_slices = futures.map(f => Await.result(f, Duration.Inf))
@@ -300,15 +336,15 @@ class ZmqCommunicator(val ctx: ZMQ.Context,
     })
     val results = result_lengths.map(l => new Array[Byte](l))
     (0 until size).map(i =>
-      Future {
-        var offset = 0
-        for (j <- 0 until required_parallelism) {
-          val slice = result_slices(j)(i)
-          System.arraycopy(slice, 0, results(i), offset, slice.length)
-          offset += slice.length
-        }
-      }(_tp)
-    ).foreach(f => Await.result(f, Duration.Inf))
+                         Future {
+                                  var offset = 0
+                                  for (j <- 0 until required_parallelism) {
+                                    val slice = result_slices(j)(i)
+                                    System.arraycopy(slice, 0, results(i), offset, slice.length)
+                                    offset += slice.length
+                                  }
+                                }(_tp)
+                       ).foreach(f => Await.result(f, Duration.Inf))
     results
   }
 }

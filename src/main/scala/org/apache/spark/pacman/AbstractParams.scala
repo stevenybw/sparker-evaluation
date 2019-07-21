@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.spark.pacman.ml
+package org.apache.spark.pacman
 
 import scala.reflect.runtime.universe._
 
