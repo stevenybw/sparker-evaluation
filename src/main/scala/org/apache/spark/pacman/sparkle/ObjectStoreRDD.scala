@@ -48,7 +48,7 @@ class SpawnRDD[T: ClassTag](sc: SparkContext, locations: IndexedSeq[BlockManager
   }
 
   override def compute(p: Partition, context: TaskContext) : Iterator[T]= {
-    val split = p.asInstanceOf[ObjectStorePartition]
+    val split = p.asInstanceOf[SpawnPartition]
     val rank = p.index
     val numExecutors = locations.size
     val objManager = SparkEnv.get.localObjectManager
@@ -59,7 +59,7 @@ class SpawnRDD[T: ClassTag](sc: SparkContext, locations: IndexedSeq[BlockManager
   }
 
   override def getPreferredLocations(p: Partition): Seq[String] = {
-    val bmid = p.asInstanceOf[ObjectStorePartition].blockManagerId
+    val bmid = p.asInstanceOf[SpawnPartition].blockManagerId
     val executorCacheTaskLoc = ExecutorCacheTaskLocation(bmid.host, bmid.executorId)
     Array(executorCacheTaskLoc.toString)
   }

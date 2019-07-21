@@ -12,7 +12,7 @@ import scala.util.Random
 
 case class ZmqInfo(ctx: ZMQ.Context, txAndPorts: IndexedSeq[(ZMQ.Socket, Int)])
 
-case class SplitAggregateMetric(var computeTimeNs: Long = 0, var reduceScatterTimeNs: Long = 0, var gatherTimeNs: Long = 0, var lastConcatTimeNs: Long = 0)
+case class SplitAggregateMetric(var computeTimeNs: Long = 0, var reductionTimeNs: Long = 0, var lastConcatTimeNs: Long = 0)
 
 /**
  * The context passed to the actors spawned
@@ -136,24 +136,19 @@ class SparkleContext(@transient val sc: SparkContext) extends Serializable {
     val objectId = objectIds.head
     val blockManagerIds = locsWithMetrics.keys.toSet
     require(blockManagerIds == sc.executorLocations.toSet)
-    spawnZmq(comm => {
+    val results = new SpawnRDD[V](sc, sc.executorLocations, comm=>{
       val objectManager = SparkEnv.get.localObjectManager
       val data = objectManager.getAndRemove[U](objectId)
-      val slice = comm.reduceScatterParallel(data, cleanSplitOp, cleanSubReduceOp, cleanConcatOp, requiredParallelism)
-      objectManager.atomicPutOrMutate[V](objectId, _=>{require(false)}, slice)
-    })
+      comm.reduceScatterParallel(data, cleanSplitOp, cleanSubReduceOp, cleanConcatOp, requiredParallelism)
+    }).collect()
     val t3 = System.nanoTime()
-    val resultRdd = new ObjectStoreRDD[V](sc, sc.executorLocations, objectId)
-    val results = resultRdd.collect()
-    val t4 = System.nanoTime()
     val result = concatOp(results)
-    val t5 = System.nanoTime()
+    val t4 = System.nanoTime()
     metricsOpt match {
       case Some(m) =>
         m.computeTimeNs = t2 - t1
-        m.reduceScatterTimeNs = t3 - t2
-        m.gatherTimeNs = t4 - t3
-        m.lastConcatTimeNs = t5 - t4
+        m.reductionTimeNs = t3 - t2
+        m.lastConcatTimeNs = t4 - t3
       case None =>
     }
     result
