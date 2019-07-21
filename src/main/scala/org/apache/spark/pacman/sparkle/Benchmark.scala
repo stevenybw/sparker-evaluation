@@ -220,12 +220,17 @@ object Benchmark {
     var treeNs: Double = 0
     var spagNs: Double = 0
     var sparkleNs: Double = 0
+    var spagComputeNs: Double = 0
+    var spagReductionNs: Double = 0
+    var sparkleComputeNs: Double = 0
+    var sparkleReductionNs: Double = 0
     for (i <- 0 until numTries) {
       val t1 = System.nanoTime()
       val treeResult = dataset.treeAggregate(DenseVector.zeros[Long](vectorDimension))(_+_, _+_)
       val t2 = System.nanoTime()
-      val spagResult = dataset.spagAggregateWithMetrics(DenseVector.zeros[Long](vectorDimension))(_+_, _+_, SplitOps.denseVectorSplitOpLong, SplitOps.denseVectorConcatOpLong)._1
+      val (spagResult, spagMetrics) = dataset.spagAggregateWithMetrics(DenseVector.zeros[Long](vectorDimension))(_+_, _+_, SplitOps.denseVectorSplitOpLong, SplitOps.denseVectorConcatOpLong)
       val t3 = System.nanoTime()
+      val sparkleMetrics = new SplitAggregateMetric()
       val sparkleResult = spc.splitAggregate[DenseVector[Long], DenseVector[Long], DenseVector[Long]](DenseVector.zeros[Long](vectorDimension))(
         dataset,
         _+_,
@@ -233,19 +238,27 @@ object Benchmark {
         SplitOps.denseVectorSplitOpLong,
         _+_,
         SplitOps.denseVectorConcatOpLong,
-        4,
-        None)
+        parallelism,
+        Some(sparkleMetrics))
       val t4 = System.nanoTime()
       require(spagResult == treeResult)
       require(sparkleResult == treeResult)
       treeNs += t2-t1
       spagNs += t3-t2
       sparkleNs += t4-t3
+      spagComputeNs = spagMetrics.p1EndToEndTimeNs
+      spagReductionNs = spagMetrics.p2EndToEndTimeNs
+      sparkleComputeNs = sparkleMetrics.computeTimeNs
+      sparkleReductionNs = sparkleMetrics.reductionTimeNs + sparkleMetrics.lastConcatTimeNs
     }
     treeNs /= numTries
     spagNs /= numTries
     sparkleNs /= numTries
-    println(s"${parallelism} ${numPartition} ${vectorPerPartition} ${vectorDimension} ${1e-9*treeNs} ${1e-9*spagNs} ${1e-9*sparkleNs}")
+    spagComputeNs /= numTries
+    spagReductionNs /= numTries
+    sparkleComputeNs /= numTries
+    sparkleReductionNs /= numTries
+    println(f"${parallelism}% 3d ${numPartition}% 3d ${vectorPerPartition}% 3d ${vectorDimension}% 6d ${1e-9*treeNs}%9.6f ${1e-9*spagNs}%9.6f ${1e-9*sparkleNs}%9.6f ${1e-9*spagComputeNs}%9.6f ${1e-9*spagReductionNs}%9.6f ${1e-9*sparkleComputeNs}%9.6f ${1e-9*sparkleReductionNs}%9.6f")
   }
 
   def rddAggregate(spc: SparkleContext,
