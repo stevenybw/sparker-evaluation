@@ -7,7 +7,7 @@ import scopt.OptionParser
 import scala.collection.mutable
 import org.apache.spark.ml.{Pipeline, PipelineStage}
 import org.apache.spark.ml.feature.{IndexToString, StringIndexer, VectorIndexer}
-import org.apache.spark.pacman.AbstractParams
+import org.apache.spark.pacman.example.AbstractParams
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object GBTExample {

@@ -6,7 +6,7 @@ import org.apache.spark.ml.classification.{LogisticRegression, LogisticRegressio
 import org.apache.spark.ml.clustering.LDA
 import org.apache.spark.ml.feature.StringIndexer
 import org.apache.spark.ml.{Pipeline, PipelineStage}
-import org.apache.spark.pacman.AbstractParams
+import org.apache.spark.pacman.example.AbstractParams
 import org.apache.spark.sql.{DataFrame, Dataset, Row, SparkSession}
 import org.apache.spark.storage.StorageLevel
 import scopt.OptionParser

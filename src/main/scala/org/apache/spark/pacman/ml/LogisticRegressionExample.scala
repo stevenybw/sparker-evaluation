@@ -9,7 +9,7 @@ import scala.collection.mutable
 import org.apache.spark.ml.{Pipeline, PipelineStage}
 import org.apache.spark.ml.classification.{LogisticRegression, LogisticRegressionModel}
 import org.apache.spark.ml.feature.StringIndexer
-import org.apache.spark.pacman.AbstractParams
+import org.apache.spark.pacman.example.AbstractParams
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 /**
@@ -136,7 +136,7 @@ object LogisticRegressionExample {
 
     val lorModel = pipelineModel.stages.last.asInstanceOf[LogisticRegressionModel]
     // Print the weights and intercept for logistic regression.
-    println(s"Weights: ${lorModel.coefficients} Intercept: ${lorModel.intercept}")
+    // println(s"Weights: ${lorModel.coefficients} Intercept: ${lorModel.intercept}")
 
     if (params.computeTest) {
       println("Test data results:")
