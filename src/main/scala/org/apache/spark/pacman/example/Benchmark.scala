@@ -229,7 +229,7 @@ object Benchmark {
       val t1 = System.nanoTime()
       val treeResult = dataset.treeAggregate(DenseVector.zeros[Long](vectorDimension))(_+_, _+_)
       val t2 = System.nanoTime()
-      val (spagResult, spagMetrics) = dataset.spagAggregateWithMetrics(DenseVector.zeros[Long](vectorDimension))(_+_, _+_, SplitOps.denseVectorSplitOpLong, SplitOps.denseVectorConcatOpLong)
+      val (spagResult, spagComputeNsCurr, spagReductionNsCurr) = dataset.spagAggregate(DenseVector.zeros[Long](vectorDimension))(_+_, _+_, SplitOps.denseVectorSplitOpLong, SplitOps.denseVectorConcatOpLong)
       val t3 = System.nanoTime()
       val sparkleMetrics = new SplitAggregateMetric()
       val sparkleResult = spc.splitAggregate[DenseVector[Long], DenseVector[Long], DenseVector[Long]](DenseVector.zeros[Long](vectorDimension))(
@@ -247,8 +247,8 @@ object Benchmark {
       treeNs += t2-t1
       spagNs += t3-t2
       sparkleNs += t4-t3
-      spagComputeNs = spagMetrics.p1EndToEndTimeNs
-      spagReductionNs = spagMetrics.p2EndToEndTimeNs
+      spagComputeNs += spagComputeNsCurr
+      spagReductionNs = spagReductionNsCurr
       sparkleComputeNs = sparkleMetrics.computeTimeNs
       sparkleReductionNs = sparkleMetrics.reductionTimeNs + sparkleMetrics.lastConcatTimeNs
     }
