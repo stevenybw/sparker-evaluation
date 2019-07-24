@@ -55,12 +55,13 @@ object BenchLatency {
       val topo = comm.topology
       val host = SparkEnv.get.blockManager.blockManagerId.host
       val ctx = comm.ctx
+      val destPort = if (srcHost == dstHost) port+1 else port
       if (rank == srcRank) {
         require(host == srcHost)
         val tx = ctx.socket(SocketType.PUSH)
         tx.bind(s"tcp://*:${port}")
         val rx = ctx.socket(SocketType.PULL)
-        rx.connect(s"tcp://${dstHost}:${port}")
+        rx.connect(s"tcp://${dstHost}:${destPort}")
 
         tx.send("syn")
         val s = rx.recvStr()
@@ -84,7 +85,7 @@ object BenchLatency {
       } else if (rank == dstRank) {
         require(host == dstHost)
         val tx = ctx.socket(SocketType.PUSH)
-        tx.bind(s"tcp://*:${port}")
+        tx.bind(s"tcp://*:${destPort}")
         val rx = ctx.socket(SocketType.PULL)
         rx.connect(s"tcp://${srcHost}:${port}")
 
@@ -134,7 +135,7 @@ object BenchLatency {
     {
       var bytes = params.fromSize
       while (bytes <= params.toSize) {
-        val lat = measureLatencyUs(spc, srcRank, srcHost, intraRank, srcHost, params.port, bytes, 1)
+        val lat = measureLatencyUs(spc, srcRank, srcHost, intraRank, srcHost, params.port, bytes, params.numAttempts)
         bytes *= 2
       }
     }
@@ -144,6 +145,14 @@ object BenchLatency {
       while (bytes <= params.toSize) {
         val lat = measureLatencyUs(spc, srcRank, srcHost, intraRank, srcHost, params.port, bytes, params.numAttempts)
         println(f"intra ${bytes}%9d ${lat}%9.3f")
+        bytes *= 2
+      }
+    }
+
+    {
+      var bytes = params.fromSize
+      while (bytes <= params.toSize) {
+        val lat = measureLatencyUs(spc, srcRank, srcHost, interRank, dstHost, params.port, bytes, params.numAttempts)
         bytes *= 2
       }
     }

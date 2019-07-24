@@ -11,7 +11,7 @@ object BenchBandwidth {
   case class Params(
                      maxParallelism: Int = 8,
                      fromSize: Int = 8,
-                     toSize: Int = 256*1024*1024,
+                     toSize: Int = 128*1024*1024,
                      port: Int = 2019,
                      queueDepth: Int = 32
                    ) extends AbstractParams[Params]
@@ -54,14 +54,18 @@ object BenchBandwidth {
    * @param parallelism the number of threads participated in the communication
    * @return
    */
-  def measureBandwidth(spc: SparkleContext, srcRank: Int, srcHost: String, dstRank: Int, dstHost: String, basePort: Int, messageBytes: Int, queueDepth: Int, parallelism: Int): Double = {
-    val mbps: Array[Double] = spc.spawnZmq(comm => {
+  def measureBandwidth(spc: SparkleContext, srcRank: Int, srcHost: String, dstRank: Int, dstHost: String, basePort: Int, messageBytes: Int, queueDepth: Int, parallelism: Int): (Double, Double) = {
+    val mbps: Array[(Double, Double)] = spc.spawnZmq(comm => {
       val rank = comm.rank
       val topo = comm.topology
       val host = SparkEnv.get.blockManager.blockManagerId.host
       val ctx = comm.ctx
+      val destPort = if (srcHost == dstHost) basePort+parallelism else basePort
       if (rank == srcRank) {
         require(host == srcHost)
+        val r = new scala.util.Random(2019)
+        val data = new Array[Byte](messageBytes)
+        r.nextBytes(data)
         val beginTime = System.nanoTime
         val threads = (0 until parallelism).map(tid => new Thread(
           new Runnable {
@@ -69,28 +73,26 @@ object BenchBandwidth {
               val tx = ctx.socket(SocketType.PUSH)
               tx.bind(s"tcp://*:${basePort + tid}")
               val rx = ctx.socket(SocketType.PULL)
-              rx.connect(s"tcp://${dstHost}:${basePort + tid}")
+              rx.connect(s"tcp://${dstHost}:${destPort + tid}")
 
               tx.send("syn")
               val s = rx.recvStr()
               require(s == "ack")
 
-              val r = new scala.util.Random(2019)
-              val data = new Array[Byte](messageBytes)
-              r.nextBytes(data)
-
               for (z <- 0 until queueDepth) {
                 tx.send(data)
               }
               val reply = rx.recvStr()
-              require(s == "fin")
+              require(reply == "fin", s"Received message '${reply}' != 'fin'")
 
               tx.close()
               rx.close()
             }
           }))
+        threads.foreach(_.start())
+        threads.foreach(_.join())
         val endTime = System.nanoTime
-        1.0 * messageBytes.toDouble * queueDepth.toDouble / (1e-3 * (endTime - beginTime))
+        (1e-9*(endTime-beginTime), 1.0 * messageBytes.toDouble * queueDepth.toDouble / (1e-3 * (endTime - beginTime)))
       } else if (rank == dstRank) {
         require(host == dstHost)
         val beginTime = System.nanoTime
@@ -98,20 +100,16 @@ object BenchBandwidth {
           new Runnable {
             override def run(): Unit = {
               val tx = ctx.socket(SocketType.PUSH)
-              tx.bind(s"tcp://*:${basePort + tid}")
+              tx.bind(s"tcp://*:${destPort + tid}")
               val rx = ctx.socket(SocketType.PULL)
               rx.connect(s"tcp://${srcHost}:${basePort + tid}")
 
-              tx.send("syn")
               val s = rx.recvStr()
-              require(s == "ack")
-
-              val r = new scala.util.Random(2019)
-              val data = new Array[Byte](messageBytes)
-              r.nextBytes(data)
+              require(s == "syn")
+              tx.send("ack")
 
               for (z <- 0 until queueDepth) {
-                val s = tx.recv()
+                val s = rx.recv()
                 require(s.length == messageBytes)
               }
               tx.send("fin")
@@ -120,10 +118,12 @@ object BenchBandwidth {
               rx.close()
             }
           }))
+        threads.foreach(_.start())
+        threads.foreach(_.join())
         val endTime = System.nanoTime
-        1.0 * messageBytes.toDouble * queueDepth.toDouble / (1e-3 * (endTime - beginTime))
+        (1e-9*(endTime-beginTime), 1.0 * messageBytes.toDouble * queueDepth.toDouble / (1e-3 * (endTime - beginTime)))
       } else {
-        0.0
+        (0.0, 0.0)
       }
     })
     mbps(srcRank)
@@ -154,7 +154,7 @@ object BenchBandwidth {
     {
       var bytes = 16
       while (bytes <= 1024*1024) {
-        val bw = measureBandwidth(spc, srcRank, srcHost, intraRank, srcHost, params.port, bytes, 1, 4)
+        val bw = measureBandwidth(spc, srcRank, srcHost, intraRank, srcHost, params.port, bytes, params.queueDepth, params.maxParallelism)
         bytes *= 2
       }
     }
@@ -164,11 +164,19 @@ object BenchBandwidth {
       while (parallelism <= params.maxParallelism) {
         var bytes = params.fromSize
         while (bytes <= params.toSize) {
-          val mbps = measureBandwidth(spc, srcRank, srcHost, intraRank, srcHost, params.port, bytes, params.queueDepth, parallelism)
-          println(f"intra ${parallelism}%2d ${bytes}%9d ${mbps}%6.3f")
+          val (duration, mbps) = measureBandwidth(spc, srcRank, srcHost, intraRank, srcHost, params.port, bytes, params.queueDepth, parallelism)
+          println(f"intra ${parallelism}%2d ${bytes}%9d ${duration}%3.6f ${mbps}%6.3f")
           bytes *= 2
         }
         parallelism *= 2
+      }
+    }
+
+    {
+      var bytes = 16
+      while (bytes <= 1024*1024) {
+        val bw = measureBandwidth(spc, srcRank, srcHost, interRank, dstHost, params.port, bytes, params.queueDepth, params.maxParallelism)
+        bytes *= 2
       }
     }
 
@@ -177,8 +185,8 @@ object BenchBandwidth {
       while (parallelism <= params.maxParallelism) {
         var bytes = params.fromSize
         while (bytes <= params.toSize) {
-          val mbps = measureBandwidth(spc, srcRank, srcHost, interRank, dstHost, params.port, bytes, params.queueDepth, parallelism)
-          println(f"intra ${parallelism}%2d ${bytes}%9d ${mbps}%6.3f")
+          val (duration, mbps) = measureBandwidth(spc, srcRank, srcHost, interRank, dstHost, params.port, bytes, params.queueDepth, parallelism)
+          println(f"inter ${parallelism}%2d ${bytes}%9d ${duration}%3.6f ${mbps}%6.3f")
           bytes *= 2
         }
         parallelism *= 2
