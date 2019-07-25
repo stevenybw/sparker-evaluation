@@ -2,7 +2,7 @@ package org.apache.spark.pacman.micro
 
 import org.apache.spark.SparkEnv
 import org.apache.spark.pacman.example.AbstractParams
-import org.apache.spark.pacman.sparkle.SparkleContext
+import org.apache.spark.sparkle.SparkleContext
 import org.apache.spark.sql.SparkSession
 import org.zeromq.SocketType
 import scopt.OptionParser

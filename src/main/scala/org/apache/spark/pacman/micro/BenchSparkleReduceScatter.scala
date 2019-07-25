@@ -1,16 +1,18 @@
-package org.apache.spark.pacman.example
+package org.apache.spark.pacman.micro
 
-import org.apache.spark.pacman.sparkle.SparkleContext
+import org.apache.spark.pacman.example.{AbstractParams, Benchmark}
+import org.apache.spark.sparkle.SparkleContext
 import org.apache.spark.sql.SparkSession
 import scopt.OptionParser
 
 object BenchSparkleReduceScatter {
   case class Params(
-                   maxParallelism: Int = 4,
-                   fromSize: Int = 1024,
-                   toSize: Int = 8*1024*1024,
-                   numAttempts: Int = 64,
-                   verySparseMessage: Boolean = false
+                   maxParallelism: Int = 8,
+                   fromSize: Int = 128,
+                   toSize: Int = 64*1024*1024,
+                   numAttempts: Int = 32,
+                   verySparseMessage: Boolean = false,
+                   executorSortedByHost: Boolean = true
                    ) extends AbstractParams[Params]
 
   def main(args: Array[String]): Unit = {
@@ -27,6 +29,8 @@ object BenchSparkleReduceScatter {
         .action((x, c) => c.copy(numAttempts = x))
       opt[Boolean]("verySparseMessage")
         .action((x, c) => c.copy(verySparseMessage = x))
+      opt[Boolean]("executorSortedByHost")
+        .action((x, c) => c.copy(executorSortedByHost = x))
       checkConfig { params => success }
     }
 
@@ -42,6 +46,8 @@ object BenchSparkleReduceScatter {
       .appName(s"BenchSparkleReduceScatter with $params")
       .getOrCreate()
 
+    SparkleContext.executorSortedByHost = params.executorSortedByHost
+    SparkleContext.numSockets = params.maxParallelism
     val spc = SparkleContext.getOrCreate(spark.sparkContext)
     Benchmark.zmqReduceScatterThroughput(spc, params.maxParallelism, params.fromSize, params.toSize, params.numAttempts, params.verySparseMessage)
   }
