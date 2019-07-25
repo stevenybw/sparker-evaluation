@@ -5,7 +5,7 @@ import org.apache.spark.sparkle.SparkleContext
 import org.apache.spark.sql.SparkSession
 import scopt.OptionParser
 
-object BenchAggregation {
+object BenchAggregationDenseVector {
   case class Params(
                    maxParallelism: Int = 8,
                    numVectorPerPartition: Int = 1,
@@ -45,12 +45,12 @@ object BenchAggregation {
   def run(params: Params): Unit = {
     val spark = SparkSession
       .builder()
-      .appName(s"BenchAggregation(Array) with $params")
+      .appName(s"BenchAggregation(DenseVector) with $params")
       .getOrCreate()
 
     SparkleContext.executorSortedByHost = params.executorSortedByHost
     SparkleContext.numSockets = params.maxParallelism
     val spc = SparkleContext.getOrCreate(spark.sparkContext)
-    Benchmark.rddAggregateArray(spc, params.numVectorPerPartition, params.numPartition, params.numAttempts, params.maxParallelism, params.fromDimension, params.toDimension)
+    Benchmark.rddAggregateDenseVector(spc, params.numVectorPerPartition, params.numPartition, params.numAttempts, params.maxParallelism, params.fromDimension, params.toDimension)
   }
 }
