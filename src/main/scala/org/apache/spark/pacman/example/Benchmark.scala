@@ -341,6 +341,15 @@ object Benchmark {
     val dataset = spc.sc.parallelize(0 until (vectorPerPartition * numPartition), numPartition).map(i => {
       DenseVector.rand[Long](vectorDimension, Rand.randLong)
     }).cacheWithStaticScheduling()
+    def denseVectorSplitOpLong(vec: DenseVector[Long], chunk_idx: Int, num_chunks: Int): DenseVector[Long] = {
+      val blockSize = vec.length / num_chunks
+      val beginPos = chunk_idx * blockSize
+      val endPos = if (chunk_idx == num_chunks - 1) vec.length else (chunk_idx + 1) * blockSize
+      vec.slice(beginPos, endPos).copy
+    }
+    def denseVectorConcatOpLong(vectors: Seq[DenseVector[Long]]): DenseVector[Long] = {
+      DenseVector.vertcat(vectors: _*)
+    }
     dataset.count()
     var treeNs: Double = 0
     var treeImmNs: Double = 0
@@ -349,19 +358,20 @@ object Benchmark {
     var sparkleComputeNs = Array.fill[Long](maxParallelism + 1)(0)
     var sparkleReductionNs = Array.fill[Long](maxParallelism + 1)(0)
     var sparkleConcatNs = Array.fill[Long](maxParallelism + 1)(0)
+    val zeroValue = DenseVector.zeros[Long](vectorDimension)
     for (i <- 0 until numTries) {
       val t1 = System.nanoTime()
-      var treeResult = dataset.treeAggregate(DenseVector.zeros[Long](vectorDimension))(_ + _, _ + _)
+      var treeResult = dataset.treeAggregate(zeroValue)(_ + _, _ + _)
       treeResult = null
       val t2 = System.nanoTime()
-      var treeIMMResult = dataset.treeAggregateWithInMemoryMerge(DenseVector.zeros[Long](vectorDimension))(_ + _, _ + _)
+      var treeIMMResult = dataset.treeAggregateWithInMemoryMerge(zeroValue)(_ + _, _ + _)
       treeIMMResult = null
       val t3 = System.nanoTime()
-      var spagResult = dataset.spagAggregate(DenseVector.zeros[Long](vectorDimension))(_ + _,
-                                                                                       _ + _,
-                                                                                       SplitOps.denseVectorSplitOpLong,
-                                                                                       SplitOps.denseVectorConcatOpLong)
-      spagResult = null
+//      var spagResult = dataset.spagAggregate(zeroValue)(_ + _,
+//                                                        _ + _,
+//                                                        denseVectorSplitOpLong,
+//                                                        denseVectorConcatOpLong)
+//      spagResult = null
       val t4 = System.nanoTime()
       treeNs += t2 - t1
       treeImmNs += t3 - t2
@@ -370,12 +380,12 @@ object Benchmark {
       while (parallelism <= maxParallelism) {
         val bt = System.nanoTime()
         val metric = SplitAggregateMetric()
-        var sparkleResult = dataset.splitAggregate(DenseVector.zeros[Long](vectorDimension))(_ + _,
-                                                                                             _ + _,
-                                                                                             SplitOps.denseVectorSplitOpLong,
-                                                                                             SplitOps.denseVectorConcatOpLong,
-                                                                                             maxParallelism,
-                                                                                             metric)
+        var sparkleResult = dataset.splitAggregate(zeroValue)(_ + _,
+                                                              _ + _,
+                                                              denseVectorSplitOpLong,
+                                                              denseVectorConcatOpLong,
+                                                              maxParallelism,
+                                                              metric)
         sparkleResult = null
         val et = System.nanoTime()
         sparkleNs(parallelism) += et - bt
