@@ -9,7 +9,7 @@ object SplitOps {
     val blockSize = vec.length / num_chunks
     val beginPos = chunk_idx * blockSize
     val endPos = if (chunk_idx == num_chunks - 1) vec.length else (chunk_idx + 1) * blockSize
-    vec.slice(beginPos, endPos)
+    vec.slice(beginPos, endPos).copy
   }
 
   val denseVectorConcatOpLong = (vectors: Seq[DenseVector[Long]]) => {

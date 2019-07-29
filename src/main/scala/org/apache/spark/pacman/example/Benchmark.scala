@@ -162,6 +162,9 @@ object Benchmark {
       val endTimeMs = System.currentTimeMillis()
       1.0 * (endTimeMs - beginTimeMs) / numAttempts
     })
+    /**
+     * Actually average duration does not represent the end-to-end scenario
+     */
     val avg_duration_ms = durations.sum / durations.size
     val avg_bw = 2e-3 * arrayBytes.toDouble * (numExecutors - 1).toDouble / numExecutors / avg_duration_ms
     (arraySize, avg_duration_ms, avg_bw)
@@ -341,15 +344,6 @@ object Benchmark {
     val dataset = spc.sc.parallelize(0 until (vectorPerPartition * numPartition), numPartition).map(i => {
       DenseVector.rand[Long](vectorDimension, Rand.randLong)
     }).cacheWithStaticScheduling()
-    def denseVectorSplitOpLong(vec: DenseVector[Long], chunk_idx: Int, num_chunks: Int): DenseVector[Long] = {
-      val blockSize = vec.length / num_chunks
-      val beginPos = chunk_idx * blockSize
-      val endPos = if (chunk_idx == num_chunks - 1) vec.length else (chunk_idx + 1) * blockSize
-      vec.slice(beginPos, endPos).copy
-    }
-    def denseVectorConcatOpLong(vectors: Seq[DenseVector[Long]]): DenseVector[Long] = {
-      DenseVector.vertcat(vectors: _*)
-    }
     dataset.count()
     var treeNs: Double = 0
     var treeImmNs: Double = 0
@@ -382,8 +376,8 @@ object Benchmark {
         val metric = SplitAggregateMetric()
         var sparkleResult = dataset.splitAggregate(zeroValue)(_ + _,
                                                               _ + _,
-                                                              denseVectorSplitOpLong,
-                                                              denseVectorConcatOpLong,
+                                                              SplitOps.denseVectorSplitOpLong,
+                                                              SplitOps.denseVectorConcatOpLong,
                                                               maxParallelism,
                                                               metric)
         sparkleResult = null
