@@ -63,13 +63,13 @@ object BenchLatency {
         val rx = ctx.socket(SocketType.PULL)
         rx.connect(s"tcp://${dstHost}:${destPort}")
 
-        tx.send("syn")
-        val s = rx.recvStr()
-        require(s == "ack")
-
         val r = new scala.util.Random(2019)
         val data = new Array[Byte](messageBytes)
         r.nextBytes(data)
+
+        tx.send("syn")
+        val s = rx.recvStr()
+        require(s == "ack")
 
         val beginTime = System.nanoTime
         for (z <- 0 until numTries) {

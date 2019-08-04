@@ -18,7 +18,7 @@ object LDAExample {
   case class Params(
     input: String = null,
     dataFormat: String = "libsvm",
-    K: Int = 10,
+    K: Int = 100,
     maxIter: Int = 100,
     computeTest: Boolean = false) extends AbstractParams[Params]
 

@@ -85,19 +85,20 @@ object GBTExample {
     // Load training and test data and cache it.
     val (training: DataFrame, test: DataFrame) = DecisionTreeExample.loadDatasets(params.input,
       params.dataFormat, params.testInput, "classification", params.fracTest)
+    val data = training.union(test)
 
     // Index labels
     val labelIndexer = new StringIndexer()
       .setInputCol("label")
       .setOutputCol("indexedLabel")
-      .fit(training)
+      .fit(data)
 
     // Identify categorical features
     val featureIndexer = new VectorIndexer()
         .setInputCol("features")
         .setOutputCol("indexedFeatures")
         .setMaxCategories(4)
-        .fit(training)
+        .fit(data)
 
     // Train a GBT model
     val gbt = new GBTClassifier()
