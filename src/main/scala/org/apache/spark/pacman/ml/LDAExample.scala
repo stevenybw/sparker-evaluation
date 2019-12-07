@@ -50,7 +50,7 @@ object LDAExample {
       case Some(params) => run(params)
       case _ => sys.exit(1)
     }
-  }
+
 
   def initStaticScheduling(spark: SparkSession): Unit = {
     // Stub for forcefully static-scheduling
@@ -85,8 +85,12 @@ object LDAExample {
 
 
     // Trans a LDA model
+
+    val startTime = System.nanoTime()
     val lda = new LDA().setK(params.K).setMaxIter(params.maxIter)
     val model = lda.fit(dataset)
+    val elapsedTime = (System.nanoTime() - startTime) / 1e9
+    println(s"Training time: $elapsedTime seconds")
 
     if (params.computeTest) {
       val ll = model.logLikelihood(dataset)
@@ -96,13 +100,13 @@ object LDAExample {
     }
 
     // Describe topics.
-    val topics = model.describeTopics(3)
-    println("The topics described by their top-weighted terms:")
-    topics.show(false)
+    // val topics = model.describeTopics(3)
+    // println("The topics described by their top-weighted terms:")
+    // topics.show(false)
 
     // Shows the result.
-    val transformed = model.transform(dataset)
-    transformed.show(false)
+    // val transformed = model.transform(dataset)
+    // transformed.show(false)
     // $example off$
 
     spark.stop()
